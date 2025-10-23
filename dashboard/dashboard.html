@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IDS Security Dashboard</title>
+    <!-- We are using Bootstrap (for layout) and Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #0a0c0f;
+        }
+        .navbar-brand {
+            font-weight: 600;
+        }
+        .stat-card {
+            border: 1px solid #343a40;
+            border-radius: .5rem;
+        }
+        .stat-card h5 {
+            font-size: 1rem;
+            color: #adb5bd;
+        }
+        .stat-card .display-4 {
+            font-weight: 700;
+            color: #e9ecef;
+        }
+        .bar-chart-container {
+            width: 100%;
+            color: #ced4da;
+        }
+        .bar-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+        .bar-label {
+            width: 40%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            padding-right: 10px;
+        }
+        .bar-wrapper {
+            width: 60%;
+            background-color: #343a40;
+            border-radius: .25rem;
+        }
+        .bar {
+            height: 20px;
+            border-radius: .25rem;
+            line-height: 20px;
+            color: #212529;
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-align: right;
+            padding-right: 5px;
+            transition: width 0.3s ease-in-out;
+        }
+        /* Color-coded table rows for severity */
+        .table-sm tr.severity-1 { /* High Severity */
+            background-color: rgba(220, 53, 69, 0.3);
+            border-left: 4px solid #dc3545;
+        }
+        .table-sm tr.severity-2 { /* Medium Severity */
+            background-color: rgba(255, 193, 7, 0.2);
+            border-left: 4px solid #ffc107;
+        }
+        .table-sm tr.severity-3 { /* Low Severity */
+            /* Default table-striped is fine */
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 1. A proper navigation bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#"><i class="bi bi-shield-lock-fill"></i> Kali IDS Dashboard</a>
+            <span class="navbar-text" id="last-updated">
+                Loading...
+            </span>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- 2. "At-a-Glance" Stat Cards -->
+        <div class="row">
+            <!-- Total Alerts Card -->
+            <div class="col-lg-4 col-md-12 mb-4">
+                <div class="card text-bg-dark stat-card h-100">
+                    <div class="card-body d-flex align-items-center">
+                        <i class="bi bi-bell-fill display-4 text-primary me-4"></i>
+                        <div>
+                            <h5>Total Alerts (in DB)</h5>
+                            <h2 class="display-4" id="total-alerts-count">...</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top Attacker IP Card -->
+            <div class="col-lg-4 col-md-6 mb-4">
+                <div class="card text-bg-dark stat-card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3"><i class="bi bi-person-fill-x"></i> Top 5 Attacker IPs</h5>
+                        <div class="bar-chart-container" id="top-ips-chart">
+                            <!-- JS will build the bar chart here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top Alert Signature Card -->
+            <div class="col-lg-4 col-md-6 mb-4">
+                <div class="card text-bg-dark stat-card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3"><i class="bi bi-bug-fill"></i> Top 5 Alert Signatures</h5>
+                        <div class="bar-chart-container" id="top-alerts-chart">
+                            <!-- JS will build the bar chart here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. The "Latest Alerts" table -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card text-bg-dark border-secondary">
+                    <div class="card-header">
+                        <h5><i class="bi bi-clock-history"></i> Latest Alerts</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-dark table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <th>Signature</th>
+                                        <th>Source IP</th>
+                                        <th>Dest. Port</th>
+                                        <th class__id="severity-header">Severity</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="alerts-table-body">
+                                    <!-- JS will build the table rows here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. The JavaScript "Brain" -->
+    <script>
+        const API_URL = 'http://127.0.0.1:5000';
+
+        // --- Helper function to build a bar chart ---
+        function buildBarChart(containerId, data, barColorClass) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = ''; // Clear "Loading..."
+
+            if (!data || data.length === 0) {
+                container.innerHTML = '<p class="text-muted small">No data yet.</p>';
+                return;
+            }
+
+            const maxCount = data[0].count; // Data is pre-sorted by the API
+
+            data.forEach(item => {
+                const percentage = (item.count / maxCount) * 100;
+                const barHtml = `
+                    <div class="bar-row" title="${item._id} (${item.count} hits)">
+                        <div class="bar-label">${item._id}</div>
+                        <div class="bar-wrapper">
+                            <div class="bar ${barColorClass}" style="width: ${percentage}%;">${item.count}</div>
+                        </div>
+                    </div>
+                `;
+                container.innerHTML += barHtml;
+            });
+        }
+
+        // --- Fetch Total Alerts ---
+        async function fetchTotalAlerts() {
+            try {
+                const response = await fetch(`${API_URL}/api/stats/total_alerts`);
+                const data = await response.json();
+                document.getElementById('total-alerts-count').textContent = data.total;
+            } catch (e) {
+                document.getElementById('total-alerts-count').textContent = 'N/A';
+            }
+        }
+
+        // --- Fetch Top IPs ---
+        async function fetchTopIPs() {
+            try {
+                const response = await fetch(`${API_URL}/api/stats/top_ips`);
+                const data = await response.json();
+                buildBarChart('top-ips-chart', data, 'bg-danger');
+            } catch (e) {
+                document.getElementById('top-ips-chart').innerHTML = '<p class="text-danger small">Error loading data.</p>';
+            }
+        }
+
+        // --- Fetch Top Alerts ---
+        async function fetchTopAlerts() {
+            try {
+                const response = await fetch(`${API_URL}/api/stats/top_alerts`);
+                const data = await response.json();
+                buildBarChart('top-alerts-chart', data, 'bg-warning');
+            } catch (e) {
+                document.getElementById('top-alerts-chart').innerHTML = '<p class="text-danger small">Error loading data.</p>';
+            }
+        }
+
+        // --- Fetch all Recent Alerts (now with severity!) ---
+        async function fetchLatestAlerts() {
+            try {
+                const response = await fetch(`${API_URL}/api/alerts`);
+                const data = await response.json();
+                const tableBody = document.getElementById('alerts-table-body');
+                tableBody.innerHTML = ''; // Clear "Loading..."
+
+                if (data.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="5" class="text-center">No alerts found. Try the test command!</td></tr>';
+                    return;
+                }
+
+                data.forEach(alert => {
+                    const timestamp = new Date(alert.timestamp).toLocaleString();
+                    // Add a class to the row based on severity
+                    const row = `<tr class="severity-${alert.alert.severity}">
+                        <td>${timestamp}</td>
+                        <td title="${alert.alert.signature}">${alert.alert.signature}</td>
+                        <td>${alert.src_ip}</td>
+                        <td>${alert.dest_port}</td>
+                        <td>${alert.alert.severity}</td>
+                    </tr>`;
+                    tableBody.innerHTML += row;
+                });
+            } catch (e) {
+                document.getElementById('alerts-table-body').innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error loading alerts. Is the API running?</td></tr>';
+            }
+        }
+
+        // --- Main function to update everything ---
+        function updateDashboard() {
+            // Update the "Last Updated" timestamp
+            document.getElementById('last-updated').textContent = `Last Updated: ${new Date().toLocaleTimeString()}`;
+            
+            // Fetch all data
+            fetchTotalAlerts();
+            fetchTopIPs();
+            fetchTopAlerts();
+            fetchLatestAlerts();
+        }
+
+        // Run the update function when the page loads,
+        // and then run it again every 10 seconds.
+        document.addEventListener('DOMContentLoaded', () => {
+            updateDashboard(); // Run immediately on load
+            setInterval(updateDashboard, 10000); // Refresh every 10 seconds
+        });
+    </script>
+</body>
+</html>
+
