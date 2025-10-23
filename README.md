@@ -186,7 +186,7 @@ Expected sequence:
 
 ## Summary
 
-You’ve now built and deployed a **complete host-based intrusion detection setup** on Kali Linux integrating:
+We’ve now built and deployed a **complete host-based intrusion detection setup** on Kali Linux integrating:
 
 - **Suricata** for packet analysis  
 - **MongoDB** for structured alert storage  
